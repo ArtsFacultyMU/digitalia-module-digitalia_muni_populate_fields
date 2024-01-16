@@ -1,0 +1,114 @@
+<?php
+
+/**
+ * @file
+ * Primary module hooks for digitalia_muni_populate_fields module.
+ *
+ * @DCG
+ * This file is no longer required in Drupal 8.
+ * @see https://www.drupal.org/node/2217931
+ */
+// populate field Pagination (from) with Extent if Pagination (from) is empty and Extent contains numeric value
+// populate field 'Member of (including virtual)' with these values: 
+// 1. Member of
+// 2. Link to Virtual -> Member of
+function digitalia_muni_populate_fields_node_presave($node) {
+  //Field Pagination (from)
+  if ($node->hasField('field_pagination_from') and $node->hasField('field_pagination')) {
+    if (empty($node->get('field_pagination_from')->getValue())) {
+      if(!empty($node->get('field_pagination')->getValue())) {
+        $from = $node->get('field_pagination')->getValue()[0]['first'];
+        if(!empty($from) and is_numeric($from)) {
+          $node->field_pagination_from = $from;
+          dpm('Field Pagination (from) was set to '.$from.'.');
+        } else {
+          dpm('Field Pagination (from) has to be set manually!');
+        }
+      };
+    }
+  }
+
+  //Field Publication year (number only)
+  if ($node->hasField('field_publication_year') and $node->hasField('field_publication_year_text')) {
+    if (empty($node->get('field_publication_year')->getValue())) {
+      if(!empty($node->get('field_publication_year_text')->getValue())) {
+        $year = $node->get('field_publication_year_text')->getValue()[0]['value'];
+        if(!empty($year) and is_numeric($year)) {
+          $node->field_publication_year = $year;
+          dpm('Field Publication year (number only) was set to '.$year.'.');
+        } else {
+          dpm('Field Publication year (number only) has to be set manually!');
+        }
+      };
+    }
+  }
+
+  if ($node->hasField('field_member_of') and $node->hasField('field_member_of_all') and $node->hasField('field_link_to_virtual')) {
+    if ($node->get('field_member_of') and !empty($node->get('field_member_of')->getValue()) and $node->get('field_member_of_all')) {
+
+      $member_of_nid = $node->get('field_member_of')->getValue()[0]['target_id'];
+    
+      $member_of_virtual = NULL;
+      if (!is_null($node->get('field_link_to_virtual')) and !empty($node->get('field_link_to_virtual')->getValue())) {
+        $virtual_nid = $node->get('field_link_to_virtual')->getValue()[0]['target_id'];
+        $virtual = \Drupal\node\Entity\Node::load($virtual_nid);
+        if ($virtual and $virtual->get('field_member_of') and !empty($virtual->get('field_member_of')->getValue())) {
+          $member_of_virtual = $virtual->get('field_member_of')->getValue()[0]['target_id'];
+        }
+      }
+
+      $node->field_member_of_all = array();
+
+      $node->field_member_of_all[] = ['target_id' => $member_of_nid];    
+      if ($member_of_virtual) {
+        $node->field_member_of_all[] = ['target_id' => $member_of_virtual];
+      }
+    }
+  }
+
+  if ($node->bundle()=='article' or $node->bundle()=='chapter') {
+    if ($parent = $node->get('field_member_of')->getValue()) {
+      $member_of = \Drupal\node\Entity\Node::load($parent[0]['target_id']);
+      if (!$member_of) {
+        return;
+      }
+      $topics = $member_of->get('field_topic')->getValue();
+      $deps = $member_of->get('field_department_mu')->getValue();
+
+      if ($node->get('field_topic')->getValue() != $topics) {
+        $node->field_topic = array();
+        foreach ($topics as $i => $topic) {
+          $node->field_topic[] = $topic;
+        }
+      }
+
+      if ($node->get('field_department_mu')->getValue() != $deps) {
+        $node->field_department_mu = array();
+        foreach ($deps as $i => $dep) {
+          $node->field_department_mu[] = $dep;
+        }
+      }
+    }
+  }
+}
+
+// prepopulate Article and Chapter form with Topic and Department from parent.
+function digitalia_muni_populate_fields_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+  if ($form_id == 'node_article_form' or $form_id == 'node_chapter_form') {
+    $member_of_nid = $form['field_member_of']['widget']['target_id']['#default_value'];
+    if (!$member_of_nid) {
+      return;
+    }
+    $member_of_nid = explode(':',$member_of_nid)[1];
+    $member_of = \Drupal\node\Entity\Node::load($member_of_nid);
+    $topics = $member_of->get('field_topic')->getValue();
+    $deps = $member_of->get('field_department_mu')->getValue();
+    foreach ($topics as $i => $topic) {
+      $form['field_topic']['widget'][$i]['target_id']['#value'] = $topic['target_id'];
+    }    
+    foreach ($deps as $i => $dep) {
+      $form['field_department_mu']['widget'][$i]['target_id']['#value'] = $dep['target_id'];
+    }
+  }
+}
+
